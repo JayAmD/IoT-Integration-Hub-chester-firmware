@@ -21,6 +21,7 @@
 #include <chester/ctr_lrw.h>
 #include <chester/ctr_soil_sensor.h>
 #include <chester/ctr_wdog.h>
+#include <chester/ctr_lte_v2.h>
 #include <chester/drivers/ctr_s1.h>
 #include <chester/drivers/ctr_x4.h>
 #include <chester/drivers/ctr_z.h>
@@ -168,29 +169,17 @@ int app_init(void)
 #if defined(FEATURE_SUBSYSTEM_LTE_V2)
 	case APP_CONFIG_MODE_LTE:
 
-		ret = ctr_cloud_init(&copt);
-		if (ret) {
-			LOG_ERR("Call `ctr_cloud_init` failed: %d", ret);
-			return ret;
-		}
+        ctr_lte_v2_enable();
 
-		if (g_app_config.interval_poll) {
-			ret = ctr_cloud_set_poll_interval(K_SECONDS(g_app_config.interval_poll));
-			if (ret) {
-				LOG_ERR("Call `ctr_cloud_set_poll_interval` failed: %d", ret);
-				return ret;
-			}
-		}
-
-		while (true) {
-			ret = ctr_cloud_wait_initialized(K_SECONDS(60));
+        while (true) {
+			ret = ctr_lte_v2_wait_for_connected(K_SECONDS(60));
 			if (!ret) {
 				break;
 			} else {
 				if (ret == -ETIMEDOUT) {
-					LOG_INF("Waiting for cloud initialization");
+					LOG_INF("Waiting for LTE connection");
 				} else {
-					LOG_ERR("Call `ctr_cloud_wait_initialized` failed: %d",
+					LOG_ERR("Call `ctr_lte_v2_wait_for_connected` failed: %d",
 						ret);
 					return ret;
 				}
