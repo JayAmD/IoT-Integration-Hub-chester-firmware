@@ -18,6 +18,7 @@
 /* CHESTER includes */
 #include <chester/ctr_buf.h>
 #include <chester/ctr_cloud.h>
+#include <chester/ctr_lte_v2.h>
 
 /* Zephyr includes */
 #include <zephyr/device.h>
@@ -41,6 +42,32 @@ static struct k_work_q m_work_q;
 static K_THREAD_STACK_DEFINE(m_work_q_stack, WORK_Q_STACK_SIZE);
 
 static struct k_timer m_send_timer;
+
+#if defined(FEATURE_SUBSYSTEM_LTE_V2)
+static int send_data_only(const void *data, size_t len)
+{
+	int ret;
+
+	struct ctr_lte_v2_send_recv_param param = {
+		.rai = true,
+		.send_as_string = true,
+		.send_buf = data,
+		.send_len = len,
+		.recv_buf = NULL,
+		.recv_size = 0,
+		.recv_len = NULL,
+		.timeout = K_SECONDS(30),
+	};
+
+	ret = ctr_lte_v2_send_recv(&param);
+	if (ret) {
+		LOG_ERR("Call `ctr_lte_v2_send_recv` failed: %d", ret);
+		return ret;
+	}
+
+	return 0;
+}
+#endif /* defined(FEATURE_SUBSYSTEM_LTE_V2) */
 
 static void send_work_handler(struct k_work *work)
 {
@@ -81,9 +108,15 @@ static void send_work_handler(struct k_work *work)
 			return;
 		}
 
-		ret = ctr_cloud_send(ctr_buf_get_mem(&buf), ctr_buf_get_used(&buf));
+		// ret = ctr_cloud_send(ctr_buf_get_mem(&buf), ctr_buf_get_used(&buf));
+		// if (ret) {
+		// 	LOG_ERR("Call `ctr_cloud_send` failed: %d", ret);
+		// 	return;
+		// }
+
+		ret = send_data_only(ctr_buf_get_mem(&buf), ctr_buf_get_used(&buf));
 		if (ret) {
-			LOG_ERR("Call `ctr_cloud_send` failed: %d", ret);
+			LOG_ERR("Call `send_data_only` failed: %d", ret);
 			return;
 		}
 	}
