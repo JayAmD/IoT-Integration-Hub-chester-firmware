@@ -76,10 +76,6 @@ int app_init(void)
 {
 	int ret;
 
-#if defined(FEATURE_SUBSYSTEM_LTE_V2)
-	CODEC_CLOUD_OPTIONS_STATIC(copt);
-#endif /* defined(FEATURE_SUBSYSTEM_LTE_V2) */
-
 	ctr_led_set(CTR_LED_CHANNEL_R, true);
 
 	ret = ctr_wdog_set_timeout(120000);
