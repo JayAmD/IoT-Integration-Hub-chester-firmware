@@ -50,7 +50,7 @@ static int send_data_only(const void *data, size_t len)
 
 	struct ctr_lte_v2_send_recv_param param = {
 		.rai = true,
-		.send_as_string = true,
+		.send_as_string = false,
 		.send_buf = data,
 		.send_len = len,
 		.recv_buf = NULL,
