@@ -30,6 +30,11 @@
 #include <zcbor_decode.h>
 #include <zcbor_encode.h>
 
+#include <tinycrypt/constants.h>
+#include <tinycrypt/sha256.h>
+#include <zephyr/sys/byteorder.h>
+#include <chester/ctr_info.h>
+
 /* Standard includes */
 #include <math.h>
 
@@ -44,15 +49,97 @@ static K_THREAD_STACK_DEFINE(m_work_q_stack, WORK_Q_STACK_SIZE);
 static struct k_timer m_send_timer;
 
 #if defined(FEATURE_SUBSYSTEM_LTE_V2)
+static int calculate_packet_hash(uint8_t packet_hash[8], uint8_t claim_token[16],
+				 const uint8_t *buf, size_t len)
+{
+	int ret;
+	struct tc_sha256_state_struct s;
+	
+	ret = tc_sha256_init(&s);
+	if (ret != TC_CRYPTO_SUCCESS) return ret;
+	
+	ret = tc_sha256_update(&s, claim_token, 16);
+	if (ret != TC_CRYPTO_SUCCESS) return ret;
+	
+	ret = tc_sha256_update(&s, buf, len);
+	if (ret != TC_CRYPTO_SUCCESS) return ret;
+	
+	uint8_t digest[32];
+	ret = tc_sha256_final(digest, &s);
+	if (ret != TC_CRYPTO_SUCCESS) return ret;
+
+	for (int i = 0; i < 8; i++) {
+		packet_hash[i] = digest[i] ^ digest[8 + i] ^ digest[16 + i] ^ digest[24 + i];
+	}
+	return 0;
+}
+
+static uint16_t g_sequence = 0;
+
 static int send_data_only(const void *data, size_t len)
 {
 	int ret;
+	uint32_t serial_number;
+	char *claim_token_str;
+	uint8_t claim_token[16];
+
+	ret = ctr_info_get_serial_number_uint32(&serial_number);
+	if (ret) {
+		LOG_ERR("Call `ctr_info_get_serial_number_uint32` failed: %d", ret);
+		return ret;
+	}
+
+	ret = ctr_info_get_claim_token(&claim_token_str);
+	if (ret) {
+		LOG_ERR("Call `ctr_info_get_claim_token` failed: %d", ret);
+		return ret;
+	}
+
+	size_t bin_len = hex2bin(claim_token_str, strlen(claim_token_str), claim_token, sizeof(claim_token));
+	if (bin_len != sizeof(claim_token)) {
+		LOG_ERR("Failed to decode claim token");
+		return -EINVAL;
+	}
+
+	size_t header_len = 15;
+	uint8_t *send_buffer = k_malloc(header_len + len);
+	if (!send_buffer) {
+		LOG_ERR("Failed to allocate send buffer");
+		return -ENOMEM;
+	}
+
+	/* 15th byte: Message Type (0x06 for UL_UPLOAD_DATA) */
+	send_buffer[14] = 0x06;
+
+	/* Copy the CBOR payload */
+	memcpy(send_buffer + header_len, data, len);
+
+	/* Write the 4-byte serial number (Big-Endian) */
+	sys_put_be32(serial_number, send_buffer + 8);
+	
+	/* Write 2-byte Flags (0xC = FIRST | LAST) and Sequence Number */
+	uint16_t header_flags_seq = (0x0C << 12) | (g_sequence & 0x0FFF);
+	sys_put_be16(header_flags_seq, send_buffer + 12);
+
+	g_sequence = (g_sequence + 1) & 0x0FFF;
+
+	/* Calculate SHA-256 Hash over everything starting from byte 8 */
+	uint8_t packet_hash[8];
+	ret = calculate_packet_hash(packet_hash, claim_token, send_buffer + 8, (header_len - 8) + len);
+	if (ret) {
+		LOG_ERR("Hash calculation failed");
+		k_free(send_buffer);
+		return ret;
+	}
+
+	/* Write the 8-byte hash to the start of the buffer */
+	memcpy(send_buffer, packet_hash, 8);
 
 	struct ctr_lte_v2_send_recv_param param = {
 		.rai = true,
 		.send_as_string = false,
-		.send_buf = data,
-		.send_len = len,
+		.send_buf = send_buffer,
+		.send_len = header_len + len,
 		.recv_buf = NULL,
 		.recv_size = 0,
 		.recv_len = NULL,
@@ -60,6 +147,9 @@ static int send_data_only(const void *data, size_t len)
 	};
 
 	ret = ctr_lte_v2_send_recv(&param);
+
+	k_free(send_buffer);
+
 	if (ret) {
 		LOG_ERR("Call `ctr_lte_v2_send_recv` failed: %d", ret);
 		return ret;
