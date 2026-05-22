@@ -22,6 +22,7 @@
 #include <chester/ctr_soil_sensor.h>
 #include <chester/ctr_wdog.h>
 #include <chester/ctr_lte_v2.h>
+#include <chester/ctr_rtc.h>
 #include <chester/drivers/ctr_s1.h>
 #include <chester/drivers/ctr_x4.h>
 #include <chester/drivers/ctr_z.h>
@@ -77,6 +78,16 @@ int app_init(void)
 	int ret;
 
 	ctr_led_set(CTR_LED_CHANNEL_R, true);
+
+	struct ctr_rtc_tm tm = {
+		.year = 2026,
+		.month = 5,
+		.day = 22,
+		.hours = 10,
+		.minutes = 0,
+		.seconds = 0
+	};
+	ctr_rtc_set_tm(&tm);
 
 	ret = ctr_wdog_set_timeout(120000);
 	if (ret) {

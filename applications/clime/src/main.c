@@ -40,7 +40,7 @@ int main(void)
 	}
 
 	for (;;) {
-		k_sleep(K_SECONDS(5));
+		k_sleep(K_SECONDS(60));
 		LOG_INF("Alive");
 
 #if defined(FEATURE_HARDWARE_CHESTER_S1)
